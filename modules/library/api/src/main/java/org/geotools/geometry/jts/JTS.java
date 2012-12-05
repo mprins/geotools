@@ -275,11 +275,11 @@ public final class JTS {
             pt = transformTo3D( top, transform1, transform2 );
             targetEnvelope.expandToInclude(pt);
             
-            GeneralDirectPosition right = new GeneralDirectPosition( xmax, ymin-dy);
+            GeneralDirectPosition right = new GeneralDirectPosition( xmax, ymax-dy);
             pt = transformTo3D( right, transform1, transform2 );
             targetEnvelope.expandToInclude(pt);
             
-            GeneralDirectPosition bottom = new GeneralDirectPosition( xmax-dx, ymax);
+            GeneralDirectPosition bottom = new GeneralDirectPosition( xmax-dx, ymin);
             pt = transformTo3D( bottom, transform1, transform2 );
             targetEnvelope.expandToInclude(pt);
         }
@@ -485,9 +485,9 @@ public final class JTS {
             if( envelope instanceof ReferencedEnvelope){
                 return envelope;
             }
-            return ReferencedEnvelope.reference( envelope,  DefaultGeographicCRS.WGS84 );
+            return ReferencedEnvelope.create( envelope,  DefaultGeographicCRS.WGS84 );
         }
-        ReferencedEnvelope initial = ReferencedEnvelope.reference( envelope, crs );
+        ReferencedEnvelope initial = ReferencedEnvelope.create( envelope, crs );
         return toGeographic( initial );
     }
     /**
