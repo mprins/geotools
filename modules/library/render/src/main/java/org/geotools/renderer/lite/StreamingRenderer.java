@@ -28,7 +28,6 @@ import java.awt.geom.NoninvertibleTransformException;
 import java.awt.geom.Point2D;
 import java.awt.image.BufferedImage;
 import java.awt.image.RenderedImage;
-import java.io.Closeable;
 import java.io.IOException;
 import java.text.NumberFormat;
 import java.util.ArrayList;
@@ -65,7 +64,6 @@ import org.geotools.data.Query;
 import org.geotools.data.crs.ForceCoordinateSystemFeatureResults;
 import org.geotools.data.memory.CollectionSource;
 import org.geotools.data.simple.SimpleFeatureCollection;
-import org.geotools.data.simple.SimpleFeatureSource;
 import org.geotools.factory.CommonFactoryFinder;
 import org.geotools.factory.Hints;
 import org.geotools.feature.FeatureCollection;
@@ -95,6 +93,7 @@ import org.geotools.map.MapLayer;
 import org.geotools.map.StyleLayer;
 import org.geotools.parameter.Parameter;
 import org.geotools.referencing.CRS;
+import org.geotools.referencing.crs.DefaultGeographicCRS;
 import org.geotools.referencing.operation.matrix.XAffineTransform;
 import org.geotools.referencing.operation.transform.AffineTransform2D;
 import org.geotools.referencing.operation.transform.ConcatenatedTransform;
@@ -142,6 +141,7 @@ import org.opengis.parameter.ParameterValueGroup;
 import org.opengis.referencing.FactoryException;
 import org.opengis.referencing.NoSuchAuthorityCodeException;
 import org.opengis.referencing.crs.CoordinateReferenceSystem;
+import org.opengis.referencing.crs.SingleCRS;
 import org.opengis.referencing.datum.PixelInCell;
 import org.opengis.referencing.operation.MathTransform;
 import org.opengis.referencing.operation.MathTransform2D;
@@ -180,7 +180,7 @@ import com.vividsolutions.jts.geom.Point;
  * @source $URL$
  * @version $Id$
  */
-public final class StreamingRenderer implements GTRenderer {
+public class StreamingRenderer implements GTRenderer {
     private final static int defaultMaxFiltersToSendToDatastore = 5; // default
 
     /**
@@ -265,7 +265,7 @@ public final class StreamingRenderer implements GTRenderer {
      * This flag is set to false when starting rendering, and will be checked
      * during the rendering loop in order to make it stop forcefully
      */
-    private boolean renderingStopRequested = false;
+    private volatile boolean renderingStopRequested = false;
 
     /**
      * The ratio required to scale the features to be rendered so that they fit
@@ -407,6 +407,8 @@ public final class StreamingRenderer implements GTRenderer {
      */
     private ExecutorService threadPool;
 
+    private PainterThread painterThread;
+
     /**
      * Creates a new instance of LiteRenderer without a context. Use it only to
      * gain access to utility methods of this class or if you want to render
@@ -511,6 +513,18 @@ public final class StreamingRenderer implements GTRenderer {
      */
     public void stopRendering() {
         renderingStopRequested = true;
+        // un-block the queue in case it was filled with requests and the main
+        // thread got blocked on it
+        requests.clear();
+        // wake up the painter and put a death pill in the queue
+        painterThread.interrupt();
+        try {
+            requests.put(new EndRequest());
+        } catch(InterruptedException e) {
+            throw new RuntimeException("Interrupted while trying to put the end " +
+            		"request in the requests queue, this should never happen", e);
+        }
+
         labelCache.stop();
     }
 
@@ -757,8 +771,8 @@ public final class StreamingRenderer implements GTRenderer {
         }
         
         // Setup the secondary painting thread
-        requests = new ArrayBlockingQueue<RenderingRequest>(10000);
-        PainterThread painterThread = new PainterThread(requests);
+        requests = getRequestsQueue();
+        painterThread = new PainterThread(requests);
         ExecutorService localThreadPool = threadPool;
         boolean localPool = false;
         if(localThreadPool == null) {
@@ -822,8 +836,10 @@ public final class StreamingRenderer implements GTRenderer {
             }
         } finally {
             try {
-                requests.put(new EndRequest());
-                painterFuture.get();
+                if(!renderingStopRequested) {
+                    requests.put(new EndRequest());
+                    painterFuture.get();
+                }
             } catch(Exception e) {
                 painterFuture.cancel(true);
                 fireErrorEvent(e);
@@ -834,7 +850,11 @@ public final class StreamingRenderer implements GTRenderer {
             }
         }
         
-        labelCache.end(graphics, paintArea);
+        if(!renderingStopRequested) {
+            labelCache.end(graphics, paintArea);
+        } else {
+            labelCache.clear();
+        }
     
         if (LOGGER.isLoggable(Level.FINE))
             LOGGER.fine(new StringBuffer("Style cache hit ratio: ").append(
@@ -848,6 +868,15 @@ public final class StreamingRenderer implements GTRenderer {
             .append(error).toString());
         }
         
+    }
+
+    /**
+     * Builds the blocking queue used to bridge between the data loading thread and
+     * the painting one
+     * @return
+     */
+    protected BlockingQueue<RenderingRequest> getRequestsQueue() {
+        return new RenderingBlockingQueue(10000);
     }
 
     /**
@@ -1065,7 +1094,8 @@ public final class StreamingRenderer implements GTRenderer {
             if(crs != null) {
                 Set<RenderingHints.Key> fsHints = source.getSupportedHints();
                 
-                MathTransform mt = buildFullTransform(crs, mapCRS, worldToScreenTransform);
+                SingleCRS crs2D = crs == null ? null : CRS.getHorizontalCRS(crs);
+                MathTransform mt = buildFullTransform(crs2D, mapCRS, worldToScreenTransform);
                 double[] spans = Decimator.computeGeneralizationDistances(mt.inverse(), screenSize, generalizationDistance);
                 double distance = spans[0] < spans[1] ? spans[0] : spans[1];
                 for (LiteFeatureTypeStyle fts : styles) {
@@ -1150,42 +1180,70 @@ public final class StreamingRenderer implements GTRenderer {
     }
 
     /**
-     * Builds a full transform going from the source CRS to the denstionan CRS
-     * and from there to the screen
+     * Builds a full transform going from the source CRS to the destination CRS
+     * and from there to the screen.
+     * <p>
+     * Although we ask for 2D content (via {@link Hints#FEATURE_2D} ) not all DataStore implementations
+     * are capable. In this event we will manually stage the information into
+     * {@link DefaultGeographicCRS#WGS84}) and before using this transform.
      */
-    private MathTransform2D buildFullTransform(CoordinateReferenceSystem sourceCRS,
+    private MathTransform buildFullTransform(CoordinateReferenceSystem sourceCRS,
             CoordinateReferenceSystem destCRS, AffineTransform worldToScreenTransform)
     throws FactoryException {
-        MathTransform2D mt = buildTransform(sourceCRS, destCRS);
+        MathTransform mt = buildTransform(sourceCRS, destCRS);
 
         // concatenate from world to screen
         if (mt != null && !mt.isIdentity()) {
-            mt = (MathTransform2D) ConcatenatedTransform
+            mt = ConcatenatedTransform
             .create(mt, ProjectiveTransform.create(worldToScreenTransform));
         } else {
-            mt = (MathTransform2D) ProjectiveTransform.create(worldToScreenTransform);
+            mt = ProjectiveTransform.create(worldToScreenTransform);
         }
 
         return mt;
     }
 
     /**
-     * Builds the transform from sourceCRS to destCRS
+     * Builds the transform from sourceCRS to destCRS/
+     * <p>
+     * Although we ask for 2D content (via {@link Hints#FEATURE_2D} ) not all DataStore implementations
+     * are capable. With that in mind if the provided soruceCRS is not 2D we are going to manually
+     * post-process the Geomtries into {@link DefaultGeographicCRS#WGS84} - and the {@link MathTransform2D}
+     * returned here will transition from WGS84 to the requested destCRS.
+     * 
      * @param sourceCRS
      * @param destCRS
      * @return the transform, or null if any of the crs is null, or if the the two crs are equal
-     * @throws FactoryException
+     * @throws FactoryException If no transform is available to the destCRS
      */
-    private MathTransform2D buildTransform(CoordinateReferenceSystem sourceCRS,
+    private MathTransform buildTransform(CoordinateReferenceSystem sourceCRS,
             CoordinateReferenceSystem destCRS) throws FactoryException {
+        MathTransform transform = null;
+        if( sourceCRS != null && sourceCRS.getCoordinateSystem().getDimension() >= 3 ){
+            // We are going to transform over to DefaultGeographic.WGS84 on the fly
+            // so we will set up our math transform to take it from there
+            MathTransform toWgs84_3d = CRS.findMathTransform( sourceCRS,  DefaultGeographicCRS.WGS84_3D );
+            MathTransform toWgs84_2d = CRS.findMathTransform( DefaultGeographicCRS.WGS84_3D, DefaultGeographicCRS.WGS84);
+            transform = ConcatenatedTransform.create(toWgs84_3d, toWgs84_2d);
+            sourceCRS = DefaultGeographicCRS.WGS84;
+        }
         // the basic crs transformation, if any
         MathTransform2D mt;
-        if (sourceCRS == null || destCRS == null || CRS.equalsIgnoreMetadata(sourceCRS,
-                destCRS))
+        if (sourceCRS == null || destCRS == null || CRS.equalsIgnoreMetadata(sourceCRS, destCRS)) {
             mt = null;
-        else
+        } else {
             mt = (MathTransform2D) CRS.findMathTransform(sourceCRS, destCRS, true);
-        return mt;
+        }
+        
+        if(transform != null) {
+            if(mt == null) {
+                return transform;
+            } else {
+                return ConcatenatedTransform.create(transform, mt);
+            }
+        } else {
+            return mt;
+        }
     }
 
     /**
@@ -1974,8 +2032,8 @@ public final class StreamingRenderer implements GTRenderer {
                 // This is a Hack, this information should not be passed through feature type
                 // appschema will need to remove this information from the feature type again
                 if (!(features instanceof SimpleFeatureCollection)) {
-                	features.getSchema().getUserData().put("targetCrs", destinationCrs);
-                	features.getSchema().getUserData().put("targetVersion", "wms:getmap");
+                    features.getSchema().getUserData().put("targetCrs", destinationCrs);
+                    features.getSchema().getUserData().put("targetVersion", "wms:getmap");
                 }
 
                 // finally, perform rendering
@@ -3126,9 +3184,9 @@ public final class StreamingRenderer implements GTRenderer {
     
                 SymbolizerAssociation sa = (SymbolizerAssociation) symbolizerAssociationHT
                 .get(symbolizer);
-                MathTransform2D crsTransform = null;
-                MathTransform2D atTransform = null;
-                MathTransform2D fullTransform = null;
+                MathTransform crsTransform = null;
+                MathTransform atTransform = null;
+                MathTransform fullTransform = null;
                 if (sa == null) {
                     sa = new SymbolizerAssociation();
                     sa.crs = (findGeometryCS(layer, content, symbolizer));
@@ -3200,7 +3258,8 @@ public final class StreamingRenderer implements GTRenderer {
             // we need to clone if the clone flag is high or if the coordinate sequence is not the one we asked for
             Geometry geom = originalGeom;
             if(clone || !(geom.getFactory().getCoordinateSequenceFactory() instanceof LiteCoordinateSequenceFactory)) {
-                geom = LiteCoordinateSequence.cloneGeometry(geom);
+                int dim = sa.crs != null ? sa.crs.getCoordinateSystem().getDimension() : 2; 
+                geom = LiteCoordinateSequence.cloneGeometry(geom, dim);
             }
 
             LiteShape2 shape;
@@ -3230,7 +3289,7 @@ public final class StreamingRenderer implements GTRenderer {
                     }
                 } 
             } else {
-                MathTransform2D xform = null;
+                MathTransform xform = null;
                 if(sa != null)
                     xform = sa.xform;
                 shape = new LiteShape2(geom, xform, getDecimator(xform), false, false);
@@ -3247,7 +3306,7 @@ public final class StreamingRenderer implements GTRenderer {
         /**
          * @throws org.opengis.referencing.operation.NoninvertibleTransformException
          */
-        private Decimator getDecimator(MathTransform2D mathTransform) {
+        private Decimator getDecimator(MathTransform mathTransform) {
             // returns a decimator that does nothing if the currently set generalization
             // distance is zero (no generalization desired) or if the datastore has
             // already done full generalization at the desired level
@@ -3482,12 +3541,20 @@ public final class StreamingRenderer implements GTRenderer {
      */
     class PainterThread implements Runnable {
         BlockingQueue<RenderingRequest> requests;
+        Thread thread;
         
         public PainterThread(BlockingQueue<RenderingRequest> requests) {
             this.requests = requests;
         }
 
+        public void interrupt() {
+            if(thread != null) {
+                thread.interrupt();
+            }
+        }
+
         public void run() {
+            thread = Thread.currentThread();
             boolean done = false;
             while(!done) {
                 try {
@@ -3506,6 +3573,41 @@ public final class StreamingRenderer implements GTRenderer {
                 
             }
             
+        }
+        
+    }
+    
+    /**
+     * A blocking queue subclass with a special behavior for the occasion when the
+     * rendering stop has been requested: puts are getting ignored, and take always
+     * returns an EndRequest
+     * 
+     * @author Andrea Aime - GeoSolutions
+     *
+     */
+    class RenderingBlockingQueue extends ArrayBlockingQueue<RenderingRequest> {
+
+        public RenderingBlockingQueue(int capacity) {
+            super(capacity);
+        }
+        
+        @Override
+        public void put(RenderingRequest e) throws InterruptedException {
+            if(!renderingStopRequested) {
+                super.put(e);
+                if(renderingStopRequested) {
+                    this.clear();
+                }
+            }
+        }
+        
+        @Override
+        public RenderingRequest take() throws InterruptedException {
+            if(!renderingStopRequested) {
+                return super.take();
+            } else {
+                return new EndRequest();
+            }
         }
         
     }
