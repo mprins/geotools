@@ -1,7 +1,7 @@
 language: java
-before_script: mvn install -DskipTests=true
-script: mvn -Dall -Djava.awt.headless=true -test
+before_script: mvn install -DskipTests=true  -Djava.awt.headless=true
+script: mvn -Dall -Djava.awt.headless=true test
 jdk:
   - oraclejdk7
-  - openjdk7
+#  - openjdk7
   - openjdk6
