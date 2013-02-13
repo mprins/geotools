@@ -3,8 +3,8 @@
     <modelVersion>4.0.0</modelVersion>
     <parent>
         <groupId>org.geotools</groupId>
-        <artifactId>unsupported</artifactId>
-        <version>9-SNAPSHOT</version>
+        <artifactId>extension</artifactId>
+        <version>10-SNAPSHOT</version>
     </parent>
 
     <!-- =========================================================== -->
