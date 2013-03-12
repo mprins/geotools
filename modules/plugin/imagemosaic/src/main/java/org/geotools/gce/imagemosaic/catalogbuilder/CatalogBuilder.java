@@ -74,6 +74,7 @@ import org.geotools.coverage.grid.io.UnknownFormat;
 import org.geotools.data.DataStoreFactorySpi;
 import org.geotools.data.DataUtilities;
 import org.geotools.data.DefaultTransaction;
+import org.geotools.data.Query;
 import org.geotools.data.shapefile.ShapefileDataStoreFactory;
 import org.geotools.feature.simple.SimpleFeatureTypeBuilder;
 import org.geotools.gce.image.WorldImageFormat;
@@ -93,6 +94,7 @@ import org.geotools.resources.coverage.CoverageUtilities;
 import org.geotools.util.Utilities;
 import org.opengis.feature.simple.SimpleFeature;
 import org.opengis.feature.simple.SimpleFeatureType;
+import org.opengis.filter.Filter;
 import org.opengis.geometry.Envelope;
 import org.opengis.referencing.crs.CoordinateReferenceSystem;
 import org.opengis.referencing.datum.PixelInCell;
@@ -267,7 +269,7 @@ public class CatalogBuilder implements Runnable {
 	 */
 	final class CatalogBuilderDirectoryWalker  extends DirectoryWalker{
 
-		private DefaultTransaction transaction;
+        private DefaultTransaction transaction;
                 private volatile boolean canceled;
 		
 		@Override
@@ -478,11 +480,12 @@ public class CatalogBuilder implements Runnable {
 					// creating the schema
 					//
 					
-					final String schemaDef= runConfiguration.getSchema();
-					if(schemaDef!=null){
+					String schema = runConfiguration.getSchema();
+					if(schema!=null){
+					        schema=schema.trim();
 						// get the schema
 						try{
-							indexSchema=DataUtilities.createType(mosaicConfiguration.getName(), runConfiguration.getSchema());
+							indexSchema=DataUtilities.createType(mosaicConfiguration.getName(), schema);
 							//override the crs in case the provided one was wrong or absent
 							indexSchema=DataUtilities.createSubType(indexSchema, DataUtilities.attributeNames(indexSchema), actualCRS);
 						}
@@ -496,15 +499,24 @@ public class CatalogBuilder implements Runnable {
 						final SimpleFeatureTypeBuilder featureBuilder = new SimpleFeatureTypeBuilder();
 						featureBuilder.setName(runConfiguration.getIndexName());
 						featureBuilder.setNamespaceURI("http://www.geo-solutions.it/");
-						featureBuilder.add(runConfiguration.getLocationAttribute(), String.class);
+						featureBuilder.add(runConfiguration.getLocationAttribute().trim(), String.class);
 						featureBuilder.add("the_geom", Polygon.class,actualCRS);
 						featureBuilder.setDefaultGeometry("the_geom");
-						if(runConfiguration.getTimeAttribute()!=null)
-							featureBuilder.add(runConfiguration.getTimeAttribute(), Date.class);
+						String timeAttribute = runConfiguration.getTimeAttribute();
+						addAttributes(timeAttribute, featureBuilder, Date.class);
 						indexSchema = featureBuilder.buildFeatureType();
 					}
+					
 					// create the schema for the new shape file
-					catalog.createType(indexSchema);
+					final SimpleFeatureType type = catalog.getType();
+                                        if(type==null){
+					    catalog.createType(indexSchema);
+					} else {
+					    // remove them all, assuming the schema has not changed
+					    final Query query = new Query(type.getTypeName());
+					    query.setFilter(Filter.INCLUDE);
+					    catalog.removeGranules(query);
+					}
 					
 				} else {
 				    if (!mosaicConfiguration.isHeterogeneous()){
@@ -632,6 +644,24 @@ public class CatalogBuilder implements Runnable {
 			
 			super.handleFile(fileBeingProcessed, depth, results);
 		}
+
+        private void addAttributes(String attribute, SimpleFeatureTypeBuilder featureBuilder, Class classType) {
+            if(attribute!=null){
+                if (!attribute.contains(Utils.RANGE_SPLITTER_CHAR)) {
+                    featureBuilder.add(attribute, classType);
+                } else {
+                    String[] ranges = attribute.split(Utils.RANGE_SPLITTER_CHAR);
+                    if (ranges.length != 2) {
+                        throw new IllegalArgumentException("All ranges attribute need to be composed of a maximum of 2 elements:\n"
+                                + "As an instance (min;max) or (low;high) or (begin;end) , ...");
+                    } else {
+                        featureBuilder.add(ranges[0], classType);
+                        featureBuilder.add(ranges[1], classType);
+                    }
+                }
+            }
+            
+        }
 
         private String prepareLocation(final File fileBeingProcessed) throws IOException {
 			//absolute
@@ -1351,14 +1381,15 @@ public class CatalogBuilder implements Runnable {
 
 	private void loadPropertyCollectors() {
 		// load property collectors
-		final String pcConfig = runConfiguration.getPropertyCollectors();
+		String pcConfig = runConfiguration.getPropertyCollectors();
 		if (pcConfig != null && pcConfig.length()>0){
+		    pcConfig=pcConfig.trim();
 			// load the SPI set
 			final Set<PropertiesCollectorSPI> pcSPIs = PropertiesCollectorFinder.getPropertiesCollectorSPI();
 			
 			// parse the string
 			final List<PropertiesCollector> pcs= new ArrayList<PropertiesCollector>();
-			final String[] pcsDefs=pcConfig.split(",");
+			final String[] pcsDefs=pcConfig.trim().split(",");
 			for (String pcDef: pcsDefs) {
 				// parse this def as NAME[CONFIG_FILE](PROPERTY;PROPERTY;....;PROPERTY)
 				final int squareLPos = pcDef.indexOf("[");
@@ -1367,23 +1398,55 @@ public class CatalogBuilder implements Runnable {
 				final int roundLPos = pcDef.indexOf("(");
 				final int roundRPos = pcDef.indexOf(")");
 				final int roundRPosLast = pcDef.lastIndexOf(")");				
-				if (squareRPos != squareRPosLast)
-					continue;
-				if (squareLPos == -1 || squareRPos == -1)
-					continue;
-				if (squareLPos == 0)
-					continue;
+				if (squareRPos != squareRPosLast){
+                                    if(LOGGER.isLoggable(Level.INFO)){
+                                        LOGGER.info("Skipping unparseable PropertyCollector definition: "+pcDef);
+                                    }				    
+				    continue;
+				}
+				if (squareLPos == -1 || squareRPos == -1){
+                                    if(LOGGER.isLoggable(Level.INFO)){
+                                        LOGGER.info("Skipping unparseable PropertyCollector definition: "+pcDef);
+                                    }   
+                                    continue;
+                                }
+				if (squareLPos == 0){
+                                    if(LOGGER.isLoggable(Level.INFO)){
+                                        LOGGER.info("Skipping unparseable PropertyCollector definition: "+pcDef);
+                                    }   
+                                    continue;
+                                }
 				
-				if (roundRPos != roundRPosLast)
-					continue;
-				if (roundLPos == -1 || roundRPos == -1)
-					continue;
-				if (roundLPos == 0)
-					continue;	
-				if (roundLPos != squareRPos + 1)//]( or exit
-					continue;		
-				if (roundRPos != (pcDef.length() - 1))// end with )
-					continue;	
+				if (roundRPos != roundRPosLast){
+                                    if(LOGGER.isLoggable(Level.INFO)){
+                                        LOGGER.info("Skipping unparseable PropertyCollector definition: "+pcDef);
+                                    }   
+                                    continue;
+                                }
+				if (roundLPos == -1 || roundRPos == -1){
+                                    if(LOGGER.isLoggable(Level.INFO)){
+                                        LOGGER.info("Skipping unparseable PropertyCollector definition: "+pcDef);
+                                    }   
+                                    continue;
+                                }
+				if (roundLPos == 0){
+                                    if(LOGGER.isLoggable(Level.INFO)){
+                                        LOGGER.info("Skipping unparseable PropertyCollector definition: "+pcDef);
+                                    }   
+                                    continue;
+                                }
+				if (roundLPos != squareRPos + 1){//]( or exit
+                                    if(LOGGER.isLoggable(Level.INFO)){
+                                        LOGGER.info("Skipping unparseable PropertyCollector definition: "+pcDef);
+                                    }   
+                                    continue;
+                                }
+				if (roundRPos != (pcDef.length() - 1)){// end with )
+                                    if(LOGGER.isLoggable(Level.INFO)){
+                                        LOGGER.info("Skipping unparseable PropertyCollector definition: "+pcDef);
+                                    }   
+                                    continue;
+                                }	
 				
 				// name
 				final String name=pcDef.substring(0,squareLPos);
@@ -1394,14 +1457,22 @@ public class CatalogBuilder implements Runnable {
 						break;
 					}
 				}
-				if (selectedSPI == null)
+				if (selectedSPI == null){
+                                    if(LOGGER.isLoggable(Level.INFO)){
+                                        LOGGER.info("Unable to find a PropertyCollector for this definition: "+pcDef);
+                                    }   
 					continue;
+				}
 				
 				// config
 				final String config=squareLPos<squareRPos?pcDef.substring(squareLPos+1,squareRPos):"";
 				final File configFile= new File(runConfiguration.getRootMosaicDirectory(),config+".properties");
-				if (!Utils.checkFileReadable(configFile))
-					continue;
+				if (!Utils.checkFileReadable(configFile)){
+                                    if(LOGGER.isLoggable(Level.INFO)){
+                                        LOGGER.info("Unable to access the file for this PropertyCollector: "+configFile.getAbsolutePath());
+                                    }   				    
+                                    continue;
+                                }
 				// it is readable
 				
 				// property names
@@ -1413,7 +1484,7 @@ public class CatalogBuilder implements Runnable {
 				    pcs.add(pc);
 				} else {
 				    if(LOGGER.isLoggable(Level.INFO)){
-				        LOGGER.info("Unable to create PropertyCollector from config file:"+configFile);
+				        LOGGER.info("Unable to create PropertyCollector "+ pcDef +" from config file:"+configFile);
 				    }
 				}
 				
