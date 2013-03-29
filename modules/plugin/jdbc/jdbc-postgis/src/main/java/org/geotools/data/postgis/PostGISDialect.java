@@ -67,6 +67,7 @@ import com.vividsolutions.jts.io.WKTReader;
  */
 public class PostGISDialect extends BasicSQLDialect {
 
+	//geometry type to class map
     final static Map<String, Class> TYPE_TO_CLASS_MAP = new HashMap<String, Class>() {
         {
             put("GEOMETRY", Geometry.class);
@@ -89,6 +90,7 @@ public class PostGISDialect extends BasicSQLDialect {
         }
     };
 
+    //geometry class to type map
     final static Map<Class, String> CLASS_TO_TYPE_MAP = new HashMap<Class, String>() {
         {
             put(Geometry.class, "GEOMETRY");
@@ -108,6 +110,8 @@ public class PostGISDialect extends BasicSQLDialect {
     static final Version V_2_0_0 = new Version("2.0.0");
 
     static final Version PGSQL_V_9_0 = new Version("9.0");
+    
+    static final Version PGSQL_V_9_1 = new Version("9.1");
 
     public PostGISDialect(JDBCDataStore dataStore) {
         super(dataStore);
@@ -594,6 +598,7 @@ public class PostGISDialect extends BasicSQLDialect {
 
         // jdbc metadata for geom columns reports DATA_TYPE=1111=Types.OTHER
         mappings.put(Geometry.class, Types.OTHER);
+        mappings.put(UUID.class, Types.OTHER);
     }
 
     @Override
@@ -616,6 +621,7 @@ public class PostGISDialect extends BasicSQLDialect {
         mappings.put("timetz", Time.class);
         mappings.put("timestamp", Timestamp.class);
         mappings.put("timestamptz", Timestamp.class);
+        mappings.put("uuid", UUID.class);
     }
     
     @Override
@@ -832,7 +838,7 @@ public class PostGISDialect extends BasicSQLDialect {
         if(byte[].class.equals(type)) {
             byte[] input = (byte[]) value;
             //check postgres version, if > 9 default encoding is hex
-            if (pgsqlVersion.compareTo(PGSQL_V_9_0) >= 0) {
+            if (pgsqlVersion.compareTo(PGSQL_V_9_1) >= 0) {
                 encodeByteArrayAsHex(input, sql);
             }
             else {
