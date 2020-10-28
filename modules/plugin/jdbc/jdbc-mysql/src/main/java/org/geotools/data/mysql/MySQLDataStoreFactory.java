@@ -52,7 +52,7 @@ public class MySQLDataStoreFactory extends JDBCDataStoreFactory {
      * EnhanceSpatialSupport is available from MYSQL version 5.6 and onward. This includes some
      * differentiation of the spatial function naming which generally follow the naming convention
      * ST_xxxx. Moreover spatial operations are performed with precise object shape and not with
-     * minumum bounding rectangles
+     * minimum bounding rectangles. As of version 8 it is the only option.
      */
     public static final Param ENHANCED_SPATIAL_SUPPORT =
             new Param(
@@ -132,7 +132,10 @@ public class MySQLDataStoreFactory extends JDBCDataStoreFactory {
         return dataStore;
     }
 
-    /** check if the version of MySQL is at least 5.6 (or above). */
+    /** check if the version of MySQL is at least 5.6 (or above).
+     *
+     * @return  {@code true} if the database is 5.6 or higher
+     */
     protected static boolean isMySqlVersion56(JDBCDataStore dataStore) {
         boolean isMySQLVersion56OrAbove = false;
         Connection con = null;
