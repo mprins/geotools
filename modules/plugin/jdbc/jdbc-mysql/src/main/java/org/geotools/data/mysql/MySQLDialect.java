@@ -186,9 +186,9 @@ public class MySQLDialect extends SQLDialect {
 
         // execute SELECT srid(<columnName>) FROM <tableName> LIMIT 1;
         sql = new StringBuffer();
-        if(this.usePreciseSpatialOps){
+        if (this.usePreciseSpatialOps) {
             sql.append("SELECT ST_SRID(");
-        }else {
+        } else {
             sql.append("SELECT srid(");
         }
         encodeColumnName(null, columnName, sql);
@@ -229,21 +229,20 @@ public class MySQLDialect extends SQLDialect {
     @Override
     public void encodeGeometryColumn(
             GeometryDescriptor gatt, String prefix, int srid, Hints hints, StringBuffer sql) {
-        if(this.usePreciseSpatialOps){
+        if (this.usePreciseSpatialOps) {
             sql.append("ST_asWKB(");
         } else {
-        sql.append("asWKB(");
+            sql.append("asWKB(");
         }
         encodeColumnName(prefix, gatt.getLocalName(), sql);
         sql.append(")");
     }
 
     public void encodeGeometryEnvelope(String tableName, String geometryColumn, StringBuffer sql) {
-        if(this.usePreciseSpatialOps){
+        if (this.usePreciseSpatialOps) {
             sql.append("ST_asWKB(");
             sql.append("ST_Envelope(");
-        }
-        else {
+        } else {
             sql.append("asWKB(");
             sql.append("envelope(");
         }

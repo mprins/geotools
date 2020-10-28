@@ -37,7 +37,8 @@ public class MySQLJoinTestSetup extends JDBCJoinTestSetup {
 
         sb = new StringBuffer();
         sb.append("INSERT INTO ftjoin VALUES (")
-                .append("0, 'zero', ST_GeomFromText('POLYGON ((-0.1 -0.1, -0.1 0.1, 0.1 0.1, 0.1 -0.1, -0.1 -0.1))',4326), 0);");
+                .append(
+                        "0, 'zero', ST_GeomFromText('POLYGON ((-0.1 -0.1, -0.1 0.1, 0.1 0.1, 0.1 -0.1, -0.1 -0.1))',4326), 0);");
         run(sb.toString());
 
         sb = new StringBuffer();

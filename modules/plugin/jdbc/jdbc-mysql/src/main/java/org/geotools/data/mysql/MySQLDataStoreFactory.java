@@ -49,7 +49,7 @@ public class MySQLDataStoreFactory extends JDBCDataStoreFactory {
             new Param("storage engine", String.class, "Storage Engine", false, "MyISAM");
 
     /**
-     * EnhanceSpatialSupport is available from MYSQL version 5.6 and onward. This includes some
+     * Enhanced Spatial Support is available from MySQL version 5.6 and onward. This includes some
      * differentiation of the spatial function naming which generally follow the naming convention
      * ST_xxxx. Moreover spatial operations are performed with precise object shape and not with
      * minimum bounding rectangles. As of version 8 it is the only option.
@@ -112,8 +112,8 @@ public class MySQLDataStoreFactory extends JDBCDataStoreFactory {
         if (enhancedSpatialFlag == null) {
             // enhanced spatial support should be enabled if MySQL
             // version is at least 5.6.
-            enhancedSpatialSupport = isMySqlVersion56(dataStore);
-        } else if (enhancedSpatialFlag && !isMySqlVersion56(dataStore)) {
+            enhancedSpatialSupport = isMySqlVersion56OrAbove(dataStore);
+        } else if (enhancedSpatialFlag && !isMySqlVersion56OrAbove(dataStore)) {
             dataStore
                     .getLogger()
                     .info("MySQL version does not support enhancedSpatialSupport. Disabling it");
@@ -132,32 +132,23 @@ public class MySQLDataStoreFactory extends JDBCDataStoreFactory {
         return dataStore;
     }
 
-    /** check if the version of MySQL is at least 5.6 (or above).
+    /**
+     * check if the version of MySQL is at least 5.6 (or above).
      *
-     * @return  {@code true} if the database is 5.6 or higher
+     * @return {@code true} if the database is 5.6 or higher
      */
-    protected static boolean isMySqlVersion56(JDBCDataStore dataStore) {
+    protected static boolean isMySqlVersion56OrAbove(JDBCDataStore dataStore) {
         boolean isMySQLVersion56OrAbove = false;
-        Connection con = null;
-        try {
-            con = dataStore.getDataSource().getConnection();
+        try (Connection con = dataStore.getDataSource().getConnection()) {
             int major = con.getMetaData().getDatabaseMajorVersion();
             int minor = con.getMetaData().getDatabaseMinorVersion();
-            if (major > 5 || (major == 5 && minor > 6)) {
-                isMySQLVersion56OrAbove = true;
-            } else {
-                isMySQLVersion56OrAbove = false;
-            }
-        } catch (Exception e) {
-            java.util.logging.Logger.getGlobal().log(java.util.logging.Level.INFO, "", e);
-        } finally {
-            try {
-                if (con != null) {
-                    con.close();
-                }
-            } catch (SQLException e) {
-                // do nothing
-            }
+            isMySQLVersion56OrAbove = major > 5 || (major == 5 && minor > 6);
+        } catch (SQLException | IllegalStateException e) {
+            dataStore
+                    .getLogger()
+                    .warning(
+                            "Unable to determine database version. Message: "
+                                    + e.getLocalizedMessage());
         }
         return isMySQLVersion56OrAbove;
     }
