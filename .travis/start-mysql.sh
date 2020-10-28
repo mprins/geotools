@@ -1,11 +1,11 @@
 #!/bin/bash -e
 docker version
 
-docker pull mysql:5
+docker pull mysql:8
 
 # start the dockerized mysql instance (the container will be destroyed/removed on stopping)
 # this container can be stopped using: docker stop geotools
-docker run --rm -p 3306:3306 -e MYSQL_ROOT_PASSWORD=geotools --name geotools -h geotools -d mysql:5
+docker run --rm -p 3306:3306 -e MYSQL_ROOT_PASSWORD=geotools --name geotools -h geotools -d mysql:8
 
 # print logs
 # docker logs geotools

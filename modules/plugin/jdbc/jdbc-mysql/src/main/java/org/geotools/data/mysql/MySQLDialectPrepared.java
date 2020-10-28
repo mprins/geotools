@@ -198,7 +198,11 @@ public class MySQLDialectPrepared extends PreparedStatementSQLDialect {
             Class binding,
             StringBuffer sql) {
         if (gClass != null) {
-            sql.append("GeomFromWKB(?)");
+            if(delegate.usePreciseSpatialOps){
+                sql.append("ST_GeometryFromWKB(?)");
+            } else {
+                sql.append("GeomFromWKB(?)");
+            }
         } else {
             super.prepareGeometryValue(gClass, dimension, srid, binding, sql);
         }

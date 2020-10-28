@@ -213,7 +213,7 @@ public class MySQLDialectBasic extends BasicSQLDialect {
     public void encodeGeometryEnvelope(String tableName, String geometryColumn, StringBuffer sql) {
         if (delegate.usePreciseSpatialOps) {
             sql.append("ST_AsWKB(");
-            sql.append("ST_envelope(");
+            sql.append("ST_Envelope(");
         } else {
             sql.append("asWKB(");
             sql.append("envelope(");
@@ -236,7 +236,7 @@ public class MySQLDialectBasic extends BasicSQLDialect {
              * geometry and not a polygon
              */
             // TODO: srid
-            Geometry geom = (Geometry) new WKBReader().read(wkb);
+            Geometry geom = new WKBReader().read(wkb);
 
             return geom.getEnvelopeInternal();
         } catch (ParseException e) {
