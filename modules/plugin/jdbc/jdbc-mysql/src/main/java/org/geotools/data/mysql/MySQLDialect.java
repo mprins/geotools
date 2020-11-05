@@ -414,7 +414,7 @@ public class MySQLDialect extends SQLDialect {
             }
 
             CoordinateReferenceSystem crs = gd.getCoordinateReferenceSystem();
-            int srid = -1;
+            int srid = 0;
             if (crs != null) {
                 Integer i = null;
                 try {

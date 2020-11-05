@@ -177,6 +177,12 @@ public class MySQLDialectBasic extends BasicSQLDialect {
         if (value != null) {
             if (delegate.usePreciseSpatialOps) {
                 sql.append("ST_GeomFromText('");
+                // HACK; mysql 8 will throw a MysqlDataTruncation exception if srid == -1 which
+                // happens when JDBCDataStore#getDescriptorSRID(AttributeDescriptor) can't find the
+                // srid in the attribute descriptor:
+                // com.mysql.cj.jdbc.exceptions.MysqlDataTruncation: Data truncation: SRID value is
+                // out of range in 'st_geomfromtext'
+                if (srid < 0) srid = 0;
             } else {
                 sql.append("GeomFromText('");
             }
