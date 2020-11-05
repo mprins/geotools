@@ -240,13 +240,30 @@ public class MySQLDialect extends SQLDialect {
 
     public void encodeGeometryEnvelope(String tableName, String geometryColumn, StringBuffer sql) {
         if (this.usePreciseSpatialOps) {
-            sql.append("ST_asWKB(");
-            sql.append("ST_Envelope(");
+            // since mysql 8 fails to execute st_envelope on geography we need to
+            // work around that casting to srid:0 and back. Example:
+            //
+            //            SELECT ST_asWkB(
+            //                -- restore srid
+            //                ST_srid(
+            //                    -- get envelope
+            //                    ST_Envelope(
+            //                            -- cast to cartesian/srid 0
+            //                            ST_srid(geom, 0)
+            //                    ),
+            //                    ST_SRID(geom)
+            //                )
+            //            ) FROM `road`
+            sql.append("ST_asWKB(ST_SRID(ST_Envelope(ST_SRID(");
+            encodeColumnName(null, geometryColumn, sql);
+            sql.append(",0)),ST_SRID(");
+            encodeColumnName(null, geometryColumn, sql);
+            sql.append(")");
         } else {
             sql.append("asWKB(");
             sql.append("envelope(");
+            encodeColumnName(null, geometryColumn, sql);
         }
-        encodeColumnName(null, geometryColumn, sql);
         sql.append("))");
     }
 
