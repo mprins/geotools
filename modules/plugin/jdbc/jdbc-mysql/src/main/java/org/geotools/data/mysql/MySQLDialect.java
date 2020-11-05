@@ -104,7 +104,7 @@ public class MySQLDialect extends SQLDialect {
     }
 
     public String getNameEscape() {
-        return "";
+        return (usePreciseSpatialOps ? "`" : "");
     }
 
     public String getGeometryTypeName(Integer type) {
@@ -320,7 +320,7 @@ public class MySQLDialect extends SQLDialect {
         mappings.put("MULTILINESTRING", MultiLineString.class);
         mappings.put("MULTIPOLYGON", MultiPolygon.class);
         mappings.put("GEOMETRY", Geometry.class);
-        mappings.put("GEOMETRYCOLLETION", GeometryCollection.class);
+        mappings.put("GEOMETRYCOLLECTION", GeometryCollection.class);
     }
 
     @Override
