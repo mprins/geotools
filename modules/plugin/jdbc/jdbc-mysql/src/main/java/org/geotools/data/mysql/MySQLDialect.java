@@ -252,14 +252,19 @@ public class MySQLDialect extends SQLDialect {
 
     public Envelope decodeGeometryEnvelope(ResultSet rs, int column, Connection cx)
             throws SQLException, IOException {
-        // String wkb = rs.getString( column );
         byte[] wkb = rs.getBytes(column);
 
         try {
+            /**
+             * As of MySQL 5.7.6, if the argument is a point or a vertical or horizontal line
+             * segment, ST_Envelope() returns the point or the line segment as its MBR rather than
+             * returning an invalid polygon therefore we must override behavior and check for a
+             * geometry and not a polygon
+             */
             // TODO: srid
-            Polygon polygon = (Polygon) new WKBReader().read(wkb);
+            Geometry geom = new WKBReader().read(wkb);
 
-            return polygon.getEnvelopeInternal();
+            return geom.getEnvelopeInternal();
         } catch (ParseException e) {
             String msg = "Error decoding wkb for envelope";
             throw (IOException) new IOException(msg).initCause(e);

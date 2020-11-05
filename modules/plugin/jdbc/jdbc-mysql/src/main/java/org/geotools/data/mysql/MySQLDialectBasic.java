@@ -217,38 +217,13 @@ public class MySQLDialectBasic extends BasicSQLDialect {
 
     @Override
     public void encodeGeometryEnvelope(String tableName, String geometryColumn, StringBuffer sql) {
-        if (delegate.usePreciseSpatialOps) {
-            sql.append("ST_AsWKB(");
-            sql.append("ST_Envelope(");
-        } else {
-            sql.append("asWKB(");
-            sql.append("envelope(");
-        }
-
-        encodeColumnName(null, geometryColumn, sql);
-        sql.append("))");
+        delegate.encodeGeometryEnvelope(tableName, geometryColumn, sql);
     }
 
     @Override
     public Envelope decodeGeometryEnvelope(ResultSet rs, int column, Connection cx)
             throws SQLException, IOException {
-        byte[] wkb = rs.getBytes(column);
-
-        try {
-            /**
-             * As of MySQL 5.7.6, if the argument is a point or a vertical or horizontal line
-             * segment, ST_Envelope() returns the point or the line segment as its MBR rather than
-             * returning an invalid polygon therefore we must override behavior and check for a
-             * geometry and not a polygon
-             */
-            // TODO: srid
-            Geometry geom = new WKBReader().read(wkb);
-
-            return geom.getEnvelopeInternal();
-        } catch (ParseException e) {
-            String msg = "Error decoding wkb for envelope";
-            throw (IOException) new IOException(msg).initCause(e);
-        }
+        return delegate.decodeGeometryEnvelope(rs, column, cx);
     }
 
     @Override
