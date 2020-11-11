@@ -65,6 +65,14 @@ public class MySQLDialectPrepared extends PreparedStatementSQLDialect {
         return delegate.getUsePreciseSpatialOps();
     }
 
+    public boolean isMySqlVersion80OrAbove() {
+        return delegate.isMySqlVersion80OrAbove;
+    }
+
+    public void setMySqlVersion80OrAbove(boolean mySqlVersion80OrAbove) {
+        delegate.isMySqlVersion80OrAbove = mySqlVersion80OrAbove;
+    }
+
     @Override
     public boolean includeTable(String schemaName, String tableName, Connection cx)
             throws SQLException {

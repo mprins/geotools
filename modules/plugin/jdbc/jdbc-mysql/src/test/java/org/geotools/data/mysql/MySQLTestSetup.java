@@ -76,8 +76,7 @@ public class MySQLTestSetup extends JDBCTestSetup {
 
         sb = new StringBuffer();
         sb.append("INSERT INTO ft1 VALUES (")
-                .append(
-                        "0,ST_GeomFromText('POINT(0 0)',4326), 0, 0.0,'zero');");
+                .append("0,ST_GeomFromText('POINT(0 0)',4326), 0, 0.0,'zero');");
         run(sb.toString());
 
         sb = new StringBuffer();

@@ -124,18 +124,22 @@ public class MySQLDataStoreFactory extends JDBCDataStoreFactory {
         if (dialect instanceof MySQLDialectBasic) {
             ((MySQLDialectBasic) dialect).setStorageEngine(storageEngine);
             ((MySQLDialectBasic) dialect).setUsePreciseSpatialOps(enhancedSpatialSupport);
+            ((MySQLDialectBasic) dialect)
+                    .setMySqlVersion80OrAbove(this.isMySqlVersion80OrAbove(dataStore));
         } else {
             ((MySQLDialectPrepared) dialect).setStorageEngine(storageEngine);
             ((MySQLDialectPrepared) dialect).setUsePreciseSpatialOps(enhancedSpatialSupport);
+            ((MySQLDialectBasic) dialect)
+                    .setMySqlVersion80OrAbove(this.isMySqlVersion80OrAbove(dataStore));
         }
 
         return dataStore;
     }
 
     /**
-     * check if the version of MySQL is at least 5.6 (or above).
+     * check if the version of MySQL is greater than 5.6.
      *
-     * @return {@code true} if the database is 5.6 or higher
+     * @return {@code true} if the database is higher than 5.6
      */
     protected static boolean isMySqlVersion56OrAbove(JDBCDataStore dataStore) {
         boolean isMySQLVersion56OrAbove = false;
@@ -151,5 +155,26 @@ public class MySQLDataStoreFactory extends JDBCDataStoreFactory {
                                     + e.getLocalizedMessage());
         }
         return isMySQLVersion56OrAbove;
+    }
+    /**
+     * check if the version of MySQL is 8.0 or greater. Needed to determine which syntax can be used
+     * for eg. {@code ST_SRID()}
+     *
+     * @return {@code true} if the database varion is is 8.0 or greater
+     */
+    protected static boolean isMySqlVersion80OrAbove(JDBCDataStore dataStore) {
+        boolean isMySQLVersion80OrAbove = false;
+        try (Connection con = dataStore.getDataSource().getConnection()) {
+            int major = con.getMetaData().getDatabaseMajorVersion();
+            int minor = con.getMetaData().getDatabaseMinorVersion();
+            isMySQLVersion80OrAbove = (major >= 8);
+        } catch (SQLException | IllegalStateException e) {
+            dataStore
+                    .getLogger()
+                    .warning(
+                            "Unable to determine database version. Message: "
+                                    + e.getLocalizedMessage());
+        }
+        return isMySQLVersion80OrAbove;
     }
 }

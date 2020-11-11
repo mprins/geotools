@@ -74,6 +74,9 @@ public class MySQLDialect extends SQLDialect {
      */
     protected boolean usePreciseSpatialOps;
 
+    /** flag indicating we are using MySQL v8.0 or higher. */
+    protected boolean isMySqlVersion80OrAbove;
+
     public MySQLDialect(JDBCDataStore dataStore) {
         super(dataStore);
     }
@@ -92,6 +95,14 @@ public class MySQLDialect extends SQLDialect {
 
     public boolean getUsePreciseSpatialOps() {
         return usePreciseSpatialOps;
+    }
+
+    public boolean isMySqlVersion80OrAbove() {
+        return this.isMySqlVersion80OrAbove;
+    }
+
+    public void setMySqlVersion80OrAbove(boolean mySqlVersion80OrAbove) {
+        this.isMySqlVersion80OrAbove = mySqlVersion80OrAbove;
     }
 
     @Override
@@ -240,25 +251,32 @@ public class MySQLDialect extends SQLDialect {
 
     public void encodeGeometryEnvelope(String tableName, String geometryColumn, StringBuffer sql) {
         if (this.usePreciseSpatialOps) {
-            // since mysql 8 fails to execute st_envelope on geography we need to
-            // work around that casting to srid:0 and back. Example:
-            //
-            //            SELECT ST_asWkB(
-            //                -- restore srid
-            //                ST_srid(
-            //                    -- get envelope
-            //                    ST_Envelope(
-            //                            -- cast to cartesian/srid 0
-            //                            ST_srid(geom, 0)
-            //                    ),
-            //                    ST_SRID(geom)
-            //                )
-            //            ) FROM `road`
-            sql.append("ST_asWKB(ST_SRID(ST_Envelope(ST_SRID(");
-            encodeColumnName(null, geometryColumn, sql);
-            sql.append(",0)),ST_SRID(");
-            encodeColumnName(null, geometryColumn, sql);
-            sql.append(")");
+            if (this.isMySqlVersion80OrAbove) {
+                // since mysql 8 fails to execute st_envelope on geography we need to
+                // work around that casting to srid:0 and back. Example:
+                //
+                //            SELECT ST_asWkB(
+                //                -- restore srid
+                //                ST_srid(
+                //                    -- get envelope
+                //                    ST_Envelope(
+                //                            -- cast to cartesian/srid 0
+                //                            ST_srid(geom, 0)
+                //                    ),
+                //                    ST_SRID(geom)
+                //                )
+                //            ) FROM `road`
+                sql.append("ST_asWKB(ST_SRID(ST_Envelope(ST_SRID(");
+                encodeColumnName(null, geometryColumn, sql);
+                sql.append(",0)),ST_SRID(");
+                encodeColumnName(null, geometryColumn, sql);
+                sql.append(")");
+            } else {
+                // 5.6/5.7 has a different syntax for ST_SRID so we can't use the above
+                // also it doesn't care about projections
+                sql.append("ST_asWKB(ST_Envelope(");
+                encodeColumnName(null, geometryColumn, sql);
+            }
         } else {
             sql.append("asWKB(");
             sql.append("envelope(");
