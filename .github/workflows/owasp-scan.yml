@@ -1,0 +1,30 @@
+name: OWASP dependency check
+
+on: [push]
+
+jobs:
+  build:
+    name: Using Java ${{ matrix.java }}
+    runs-on: [ ubuntu-20.04 ]
+    strategy:
+      matrix:
+        java: [ 11 ]
+
+    steps:
+    - uses: actions/checkout@v2
+      with:
+        fetch-depth: 1
+        lfs: false
+    - name: Maven repository caching
+      uses: actions/cache@v2
+      with:
+        path: ~/.m2/repository
+        key: ${{ runner.os }}-maven-${{ hashFiles('**/pom.xml') }}
+        restore-keys: |
+          ${{ runner.os }}-maven-
+    - name: Set up JDK
+      uses: actions/setup-java@v1
+      with:
+        java-version: ${{ matrix.java }}
+    - name: OWASP Dependency Check
+      run: mvn clean package org.owasp:dependency-check-maven:aggregate -Dfmt.skip=true -Dall -DskipTests=true -fae -B -Dorg.slf4j.simpleLogger.defaultLogLevel=WARN -DfailBuildOnCVSS=7 -T2.2C
